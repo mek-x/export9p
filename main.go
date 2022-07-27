@@ -1,17 +1,61 @@
 package main
 
 import (
+	"bytes"
 	"flag"
+	"fmt"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
 
+	"github.com/emersion/go-sasl"
 	"github.com/knusbaum/go9p"
 	"github.com/knusbaum/go9p/fs"
 	"github.com/knusbaum/go9p/fs/real"
 )
 
 var exportFS fs.FS
+
+func PlainAuth(userpass map[string]string) func(io.ReadWriter) (string, error) {
+	return func(s io.ReadWriter) (string, error) {
+		auth := sasl.NewPlainServer(func(identity, username, password string) error {
+			if identity != username {
+				return fmt.Errorf("Identity and Username must match.")
+			}
+			pass, ok := userpass[username]
+			if !ok {
+				return fmt.Errorf("No such user (TODO: make sure this does not go to client)")
+			}
+			if pass != password {
+				return fmt.Errorf("FAILED PASSWORD  (TODO: make sure this does not go to client)")
+			}
+			return nil
+		})
+
+		for {
+			var ba [4096]byte
+			log.Printf("READ1\n")
+			n, err := s.Read(ba[:])
+			if err != nil {
+				return "", err
+			}
+			bs := ba[:n]
+			challenge, done, err := auth.Next(bs)
+			if err != nil {
+				log.Printf("ERROR: %s\n", err)
+				return "", err
+			}
+			if done {
+				parts := bytes.Split(bs, []byte("\x00"))
+				log.Printf("SUCCESS!\n")
+				return string(parts[0]), nil
+			}
+			log.Printf("WRITE1\n")
+			s.Write(challenge)
+		}
+	}
+}
 
 func main() {
 	directory := flag.String("dir", ".", "The directory that will be exported")
@@ -41,7 +85,7 @@ func main() {
 	fs.WithCreateFile(real.CreateFile)(&exportFS)
 	fs.WithCreateDir(real.CreateDir)(&exportFS)
 	fs.WithRemoveFile(real.Remove)(&exportFS)
-	fs.WithAuth(fs.PlainAuth(map[string]string{
+	fs.WithAuth(PlainAuth(map[string]string{
 		"kyle": "foo",
 		"jake": "bar",
 	}))(&exportFS)
