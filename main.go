@@ -62,7 +62,7 @@ func PlainAuth(userpass map[string]string) func(io.ReadWriter) (string, error) {
 
 func main() {
 	directory := flag.String("dir", ".", "The directory that will be exported")
-	address := flag.String("address", "localhost:9000", "The address on which to listed for incoming 9p connections")
+	address := flag.String("address", "0.0.0.0:14672", "The address on which to listed for incoming 9p connections")
 	srv := flag.String("srv", "", "If specified, exportfs will listen on a unix socket with this service name in the current namespace (see p9p namespace(1)) rather than listening on tcp")
 	verbose := flag.Bool("v", false, "Makes the 9p protocol verbose, printing all incoming and outgoing messages.")
 	stdio := flag.Bool("s", false, "Serve 9p over standard in and standard out.")
