@@ -8,6 +8,9 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
+
+	"golang.org/x/crypto/bcrypt"
 
 	"github.com/emersion/go-sasl"
 	"github.com/knusbaum/go9p"
@@ -21,14 +24,14 @@ func PlainAuth(userpass map[string]string) func(io.ReadWriter) (string, error) {
 	return func(s io.ReadWriter) (string, error) {
 		auth := sasl.NewPlainServer(func(identity, username, password string) error {
 			if identity != username {
-				return fmt.Errorf("Identity and Username must match.")
+				return fmt.Errorf("access denied")
 			}
 			pass, ok := userpass[username]
 			if !ok {
-				return fmt.Errorf("No such user (TODO: make sure this does not go to client)")
+				return fmt.Errorf("access denied")
 			}
-			if pass != password {
-				return fmt.Errorf("FAILED PASSWORD  (TODO: make sure this does not go to client)")
+			if bcrypt.CompareHashAndPassword([]byte(pass), []byte(password)) != nil {
+				return fmt.Errorf("access denied")
 			}
 			return nil
 		})
@@ -64,6 +67,7 @@ func main() {
 	verbose := flag.Bool("v", false, "Makes the 9p protocol verbose, printing all incoming and outgoing messages.")
 	stdio := flag.Bool("s", false, "Serve 9p over standard in and standard out.")
 	noperm := flag.Bool("noperm", false, "Ignore permissions enforcement. Any attached user will have the same filesystem permissions as the user running export9p.")
+	passwdFile := flag.String("p", "passwd", "Read password hashes from given file")
 	flag.Parse()
 
 	if flag.NArg() > 0 {
@@ -81,14 +85,26 @@ func main() {
 		os.Exit(1)
 	}
 
+	contents, err := os.ReadFile(*passwdFile)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	userPass := make(map[string]string)
+
+	lines := strings.Split(string(contents), "\n")
+	for _, v := range lines {
+		pair := strings.Split(v, ":")
+		if len(pair) == 2 {
+			userPass[pair[0]] = pair[1]
+		}
+	}
+
 	exportFS.Root = &real.Dir{Path: dir}
 	fs.WithCreateFile(real.CreateFile)(&exportFS)
 	fs.WithCreateDir(real.CreateDir)(&exportFS)
 	fs.WithRemoveFile(real.Remove)(&exportFS)
-	fs.WithAuth(PlainAuth(map[string]string{
-		"kyle": "foo",
-		"jake": "bar",
-	}))(&exportFS)
+	fs.WithAuth(PlainAuth(userPass))(&exportFS)
 	if *noperm {
 		fs.IgnorePermissions()(&exportFS)
 	}
